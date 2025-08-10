@@ -22,6 +22,7 @@ use chrono::{DateTime, Utc};
 use datafusion_common::instant::Instant;
 use datafusion_execution::memory_pool::human_readable_size;
 use parking_lot::Mutex;
+use serde::Serialize;
 use std::{
     borrow::{Borrow, Cow},
     fmt::{Debug, Display},
@@ -35,7 +36,7 @@ use std::{
 /// A counter to record things such as number of input or output rows
 ///
 /// Note `clone`ing counters update the same underlying metrics
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Count {
     /// value of the metric counter
     value: Arc<AtomicUsize>,
@@ -84,7 +85,7 @@ impl Count {
 /// For example, you can easily expose current memory consumption with a gauge.
 ///
 /// Note `clone`ing gauge update the same underlying metrics
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Gauge {
     /// value of the metric gauge
     value: Arc<AtomicUsize>,
@@ -149,7 +150,7 @@ impl Gauge {
 }
 
 /// Measure a potentially non contiguous duration of time
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Time {
     /// elapsed time, in nanoseconds
     nanos: Arc<AtomicUsize>,
@@ -235,7 +236,7 @@ impl Time {
 
 /// Stores a single timestamp, stored as the number of nanoseconds
 /// elapsed from Jan 1, 1970 UTC
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Timestamp {
     /// Time thing started
     timestamp: Arc<Mutex<Option<DateTime<Utc>>>>,
@@ -367,7 +368,7 @@ impl Drop for ScopedTimerGuard<'_> {
 /// Among other differences, the metric types have different ways to
 /// logically interpret their underlying values and some metrics are
 /// so common they are given special treatment.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum MetricValue {
     /// Number of output rows produced: "output_rows" metric
     OutputRows(Count),

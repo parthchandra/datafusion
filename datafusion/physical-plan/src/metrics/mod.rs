@@ -29,6 +29,8 @@ use std::{
     sync::Arc,
 };
 
+use serde::Serialize;
+
 use datafusion_common::HashMap;
 
 // public exports
@@ -67,7 +69,7 @@ pub use value::{Count, Gauge, MetricValue, ScopedTimerGuard, Time, Timestamp};
 ///
 /// [`ExecutionPlan`]: super::ExecutionPlan
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Metric {
     /// The value of the metric
     value: MetricValue,
@@ -169,7 +171,7 @@ impl Metric {
 /// A snapshot of the metrics for a particular ([`ExecutionPlan`]).
 ///
 /// [`ExecutionPlan`]: super::ExecutionPlan
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Serialize)]
 pub struct MetricsSet {
     metrics: Vec<Arc<Metric>>,
 }
@@ -392,7 +394,7 @@ impl ExecutionPlanMetricsSet {
 ///
 /// As the name and value are expected to mostly be constant strings,
 /// use a [`Cow`] to avoid copying / allocations in this common case.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct Label {
     name: Cow<'static, str>,
     value: Cow<'static, str>,
