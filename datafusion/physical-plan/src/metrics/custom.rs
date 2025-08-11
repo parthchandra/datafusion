@@ -86,6 +86,7 @@ use std::{any::Any, fmt::Debug, fmt::Display, sync::Arc};
 /// ```
 ///
 /// [`MetricValue::Custom`]: super::MetricValue::Custom
+#[typetag::serde(tag = "type")]
 pub trait CustomMetricValue: Display + Debug + Send + Sync {
     /// Returns a new, zero-initialized version of this metric value.
     ///

@@ -64,8 +64,9 @@ itertools = { workspace = true, features = ["use_std"] }
 log = { workspace = true }
 parking_lot = { workspace = true }
 pin-project-lite = "^0.2.7"
-tokio = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
+tokio = { workspace = true }
+typetag = "0.2"
 
 [dev-dependencies]
 criterion = { workspace = true, features = ["async_futures"] }

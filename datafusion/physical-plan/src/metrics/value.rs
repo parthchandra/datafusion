@@ -236,10 +236,26 @@ impl Time {
 
 /// Stores a single timestamp, stored as the number of nanoseconds
 /// elapsed from Jan 1, 1970 UTC
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct Timestamp {
     /// Time thing started
     timestamp: Arc<Mutex<Option<DateTime<Utc>>>>,
+}
+
+#[derive(Serialize, Debug)]
+struct SerializableTimestamp {
+    timestamp: Option<DateTime<Utc>>,
+}
+
+impl Serialize for Timestamp {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let data = self.timestamp.lock();
+        let serializable = SerializableTimestamp { timestamp: *data };
+        serializable.serialize(serializer)
+    }
 }
 
 impl Default for Timestamp {
@@ -702,10 +718,11 @@ mod tests {
 
     use chrono::TimeZone;
     use datafusion_execution::memory_pool::units::MB;
+    use serde::Deserialize;
 
     use super::*;
 
-    #[derive(Debug, Default)]
+    #[derive(Debug, Default, Serialize, Deserialize)]
     pub struct CustomCounter {
         count: AtomicUsize,
     }
@@ -716,6 +733,7 @@ mod tests {
         }
     }
 
+    #[typetag::serde]
     impl CustomMetricValue for CustomCounter {
         fn new_empty(&self) -> Arc<dyn CustomMetricValue> {
             Arc::new(CustomCounter::default())
