@@ -171,7 +171,7 @@ impl Metric {
 /// A snapshot of the metrics for a particular ([`ExecutionPlan`]).
 ///
 /// [`ExecutionPlan`]: super::ExecutionPlan
-#[derive(Default, Debug, Clone, Serialize)]
+#[derive(Default, Debug, Clone)]
 pub struct MetricsSet {
     metrics: Vec<Arc<Metric>>,
 }

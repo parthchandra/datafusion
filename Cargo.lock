@@ -2519,6 +2519,7 @@ dependencies = [
  "rstest",
  "rstest_reuse",
  "serde",
+ "serde_json",
  "tempfile",
  "tokio",
  "typetag",

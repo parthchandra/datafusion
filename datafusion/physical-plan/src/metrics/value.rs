@@ -22,7 +22,7 @@ use chrono::{DateTime, Utc};
 use datafusion_common::instant::Instant;
 use datafusion_execution::memory_pool::human_readable_size;
 use parking_lot::Mutex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     borrow::{Borrow, Cow},
     fmt::{Debug, Display},
@@ -36,7 +36,7 @@ use std::{
 /// A counter to record things such as number of input or output rows
 ///
 /// Note `clone`ing counters update the same underlying metrics
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct Count {
     /// value of the metric counter
     value: Arc<AtomicUsize>,
@@ -51,6 +51,27 @@ impl PartialEq for Count {
 impl Display for Count {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.value())
+    }
+}
+
+impl Serialize for Count {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_u64(self.value.load(Ordering::Relaxed) as u64)
+    }
+}
+
+impl<'de> Deserialize<'de> for Count {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = u64::deserialize(deserializer)? as usize;
+        Ok(Count {
+            value: Arc::new(AtomicUsize::new(value)),
+        })
     }
 }
 
@@ -85,7 +106,7 @@ impl Count {
 /// For example, you can easily expose current memory consumption with a gauge.
 ///
 /// Note `clone`ing gauge update the same underlying metrics
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct Gauge {
     /// value of the metric gauge
     value: Arc<AtomicUsize>,
@@ -100,6 +121,27 @@ impl PartialEq for Gauge {
 impl Display for Gauge {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.value())
+    }
+}
+
+impl Serialize for Gauge {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_u64(self.value.load(Ordering::Relaxed) as u64)
+    }
+}
+
+impl<'de> Deserialize<'de> for Gauge {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = u64::deserialize(deserializer)? as usize;
+        Ok(Gauge {
+            value: Arc::new(AtomicUsize::new(value)),
+        })
     }
 }
 
@@ -150,7 +192,7 @@ impl Gauge {
 }
 
 /// Measure a potentially non contiguous duration of time
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct Time {
     /// elapsed time, in nanoseconds
     nanos: Arc<AtomicUsize>,
@@ -172,6 +214,27 @@ impl Display for Time {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let duration = Duration::from_nanos(self.value() as u64);
         write!(f, "{duration:?}")
+    }
+}
+
+impl Serialize for Time {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_u64(self.nanos.load(Ordering::Relaxed) as u64)
+    }
+}
+
+impl<'de> Deserialize<'de> for Time {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let nanos = u64::deserialize(deserializer)? as usize;
+        Ok(Time {
+            nanos: Arc::new(AtomicUsize::new(nanos)),
+        })
     }
 }
 
@@ -242,7 +305,7 @@ pub struct Timestamp {
     timestamp: Arc<Mutex<Option<DateTime<Utc>>>>,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Deserialize)]
 struct SerializableTimestamp {
     timestamp: Option<DateTime<Utc>>,
 }
@@ -255,6 +318,19 @@ impl Serialize for Timestamp {
         let data = self.timestamp.lock();
         let serializable = SerializableTimestamp { timestamp: *data };
         serializable.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Timestamp {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let SerializableTimestamp { timestamp } =
+            SerializableTimestamp::deserialize(deserializer)?;
+        Ok(Timestamp {
+            timestamp: Arc::new(Mutex::new(timestamp)),
+        })
     }
 }
 
@@ -384,7 +460,7 @@ impl Drop for ScopedTimerGuard<'_> {
 /// Among other differences, the metric types have different ways to
 /// logically interpret their underlying values and some metrics are
 /// so common they are given special treatment.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MetricValue {
     /// Number of output rows produced: "output_rows" metric
     OutputRows(Count),
@@ -715,6 +791,7 @@ impl Display for MetricValue {
 #[cfg(test)]
 mod tests {
     use std::any::Any;
+    use std::time::Duration;
 
     use chrono::TimeZone;
     use datafusion_execution::memory_pool::units::MB;
@@ -977,5 +1054,126 @@ mod tests {
             (10_000_000..=10_100_000).contains(&new_recorded),
             "Expected ~10ms total, got {new_recorded} ns",
         );
+    }
+
+    #[test]
+    fn test_count_serde() {
+        // Test serialization and deserialization of Count
+        let count = Count::new();
+        count.add(42);
+
+        // Serialize to JSON
+        let serialized = serde_json::to_string(&count).unwrap();
+        assert_eq!(serialized, "42");
+
+        // Deserialize from JSON
+        let deserialized: Count = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.value(), 42);
+
+        // Test zero value
+        let zero_count = Count::new();
+        let serialized_zero = serde_json::to_string(&zero_count).unwrap();
+        assert_eq!(serialized_zero, "0");
+        let deserialized_zero: Count = serde_json::from_str(&serialized_zero).unwrap();
+        assert_eq!(deserialized_zero.value(), 0);
+    }
+
+    #[test]
+    fn test_gauge_serde() {
+        // Test serialization and deserialization of Gauge
+        let gauge = Gauge::new();
+        gauge.add(100);
+        gauge.sub(30);
+
+        // Serialize to JSON
+        let serialized = serde_json::to_string(&gauge).unwrap();
+        assert_eq!(serialized, "70");
+
+        // Deserialize from JSON
+        let deserialized: Gauge = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.value(), 70);
+
+        // Test zero value
+        let zero_gauge = Gauge::new();
+        let serialized_zero = serde_json::to_string(&zero_gauge).unwrap();
+        assert_eq!(serialized_zero, "0");
+        let deserialized_zero: Gauge = serde_json::from_str(&serialized_zero).unwrap();
+        assert_eq!(deserialized_zero.value(), 0);
+
+        // Test large value
+        let large_gauge = Gauge::new();
+        large_gauge.set(1_000_000);
+        let serialized_large = serde_json::to_string(&large_gauge).unwrap();
+        assert_eq!(serialized_large, "1000000");
+        let deserialized_large: Gauge = serde_json::from_str(&serialized_large).unwrap();
+        assert_eq!(deserialized_large.value(), 1_000_000);
+    }
+
+    #[test]
+    fn test_time_serde() {
+        // Test serialization and deserialization of Time
+        let time = Time::new();
+        time.add_duration(Duration::from_secs(1)); // 1 second in nanoseconds
+
+        // Serialize to JSON
+        let serialized = serde_json::to_string(&time).unwrap();
+        assert_eq!(serialized, "1000000000");
+
+        // Deserialize from JSON
+        let deserialized: Time = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.value(), 1_000_000_000);
+
+        // Test zero time
+        let zero_time = Time::new();
+        let serialized_zero = serde_json::to_string(&zero_time).unwrap();
+        assert_eq!(serialized_zero, "0");
+        let deserialized_zero: Time = serde_json::from_str(&serialized_zero).unwrap();
+        assert_eq!(deserialized_zero.value(), 0);
+
+        // Test with duration
+        let duration_time = Time::new();
+        duration_time.add_duration(Duration::from_millis(500));
+        let serialized_duration = serde_json::to_string(&duration_time).unwrap();
+        let deserialized_duration: Time =
+            serde_json::from_str(&serialized_duration).unwrap();
+        // Should be approximately 500ms in nanoseconds (500_000_000)
+        assert!(deserialized_duration.value() >= 500_000_000);
+    }
+
+    #[test]
+    fn test_timestamp_serde() {
+        // Test serialization and deserialization of Timestamp with a specific time
+        let timestamp = Timestamp::new();
+        let test_time = Utc.with_ymd_and_hms(2023, 12, 25, 10, 30, 45).unwrap();
+        timestamp.set(test_time);
+
+        // Serialize to JSON
+        let serialized = serde_json::to_string(&timestamp).unwrap();
+
+        // Deserialize from JSON
+        let deserialized: Timestamp = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.value(), Some(test_time));
+
+        // Test uninitialized timestamp (None)
+        let empty_timestamp = Timestamp::new();
+        let serialized_empty = serde_json::to_string(&empty_timestamp).unwrap();
+        assert_eq!(serialized_empty, r#"{"timestamp":null}"#);
+
+        let deserialized_empty: Timestamp =
+            serde_json::from_str(&serialized_empty).unwrap();
+        assert_eq!(deserialized_empty.value(), None);
+
+        // Test current time
+        let now_timestamp = Timestamp::new();
+        now_timestamp.record(); // Sets to current time
+        let serialized_now = serde_json::to_string(&now_timestamp).unwrap();
+        let deserialized_now: Timestamp = serde_json::from_str(&serialized_now).unwrap();
+
+        // Should have a value and it should be recent
+        assert!(deserialized_now.value().is_some());
+        let deserialized_time = deserialized_now.value().unwrap();
+        let now = Utc::now();
+        // Should be within 1 second of now
+        assert!((now - deserialized_time).num_seconds().abs() < 1);
     }
 }
